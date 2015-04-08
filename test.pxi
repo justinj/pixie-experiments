@@ -5,11 +5,18 @@
             [pixie.ffi-infer :as f]
             [pixie.async :as async]))
 
-(defmacro defn-callback [tp nm args & body]
-  `(let [f# (fn ~args ~@body)]
-     (def ~nm (ffi/ffi-prep-callback ~tp f#))))
+(defn make-request-state []
+  (atom {:contents ""
+         :promise (async/promise)}))
 
-(defn-callback uv/uv_alloc_cb
+; not really happy with the structure of this, but it will have to do for now
+(defmacro defn-callback [tp state-binding nm args & body]
+  `(def ~nm
+     (fn ~state-binding
+       (ffi/ffi-prep-callback ~tp (fn ~args ~@body)))))
+
+(defn-callback
+  uv/uv_alloc_cb [state]
   on-alloc [handle size buf-ptr]
   (let [buf (ffi/cast buf-ptr uv/uv_buf_t)
         b (buffer size)]
@@ -24,34 +31,38 @@
     (pixie.ffi/set! buf :len len)
     buf))
 
-(defn-callback uv/uv_connect_cb
+(defn-callback
+  uv/uv_connect_cb [state]
   on-connect [connect s]
   ; TODO: check status here
   (let [handle-ptr (:handle (ffi/cast connect uv/uv_connect_t))
         handle (ffi/cast handle-ptr uv/uv_stream_t)
         request (uv/uv_write_t)]
-    (uv/uv_write request handle buf 1 on-write)
-    (uv/uv_read_start handle on-alloc on-read)))
+    (uv/uv_write request handle buf 1 (on-write state))
+    (uv/uv_read_start handle (on-alloc state) (on-read state))))
 
-(defn-callback uv/uv_write_cb
+(defn-callback
+  uv/uv_write_cb [state]
   on-write [req status]
-  (if (neg? status) (prn (uv/uv_err_name status)))
-  0)
+  (if (neg? status) (prn (uv/uv_err_name status))))
 
-(defn-callback uv/uv_close_cb
-  on-close [handle])
+(defn-callback
+  uv/uv_close_cb [state]
+  on-close [handle]
+  ((:promise @state) (:contents @state)))
 
 (defn read-bytes-from-buf [nread buf]
   (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 nread))))
 
-(defn-callback uv/uv_read_cb
+(defn-callback
+  uv/uv_read_cb [state]
   on-read [tcp nread buf]
   (if (>= nread 0)
-    (println (read-bytes-from-buf
-           nread
-           (:base (ffi/cast buf uv/uv_buf_t))))
-    (uv/uv_close tcp on-close))
-  0)
+    (let [contents (read-bytes-from-buf
+                     nread
+                     (:base (ffi/cast buf uv/uv_buf_t)))]
+      (swap! state #(assoc % :contents (str (:contents %) contents))))
+    (uv/uv_close tcp (on-close state))))
 
 (defn make-addr [hostname port]
   (let [addr (uv/sockaddr_in)]
@@ -59,11 +70,13 @@
     addr))
 
 (defn make-request []
-  (let [socket (uv/uv_tcp_t)
+  (let [state (make-request-state)
+        socket (uv/uv_tcp_t)
         _ (uv/uv_tcp_init (uv/uv_default_loop) socket)
         connect (uv/uv_connect_t)
         addr (make-addr "localhost" 8000)]
-    (uv/uv_tcp_connect connect socket addr on-connect)))
+    (uv/uv_tcp_connect connect socket addr (on-connect state))
+    (:promise @state)))
 
 ; TODO: unsure what the user-agent should be...
 (def buf (buffer-with-contents "GET / HTTP/1.1
@@ -73,4 +86,4 @@ Accept: */*
 
 "))
 
-(make-request)
+(prn @(make-request))
