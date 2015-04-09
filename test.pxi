@@ -60,6 +60,12 @@
 ; that seems wrong and oddly specific to http though, so that seems wrong.
 ; I need to understand the interface of libuv better.
 
+; hah, the problem was that http 1.1 is keep-alive by default, so changing it
+; to Connection: close fixed the problem.
+; should look at how other libraries deal with this, but I think the default
+; for us should probably be close? unless we provide some wrapper allowing one
+; to reuse connections, that might be neat
+
 (defn-callback
   uv/uv_read_cb [state]
   on-read [tcp nread buf]
@@ -92,6 +98,7 @@
 (def buf (buffer-with-contents
 "GET / HTTP/1.1
 User-Agent: curl/7.37.1
+Connection: close
 Host: whocouldthat.be
 Accept: */*
 
