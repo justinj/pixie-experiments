@@ -10,6 +10,7 @@
          :promise (async/promise)}))
 
 ; not really happy with the structure of this, but it will have to do for now
+; I'm not sure this thing is really a win
 (defmacro defn-callback [tp state-binding nm args & body]
   `(def ~nm
      (fn ~state-binding
@@ -34,7 +35,6 @@
 (defn-callback
   uv/uv_connect_cb [state]
   on-connect [connect s]
-  ; TODO: check status here
   (let [handle-ptr (:handle (ffi/cast connect uv/uv_connect_t))
         handle (ffi/cast handle-ptr uv/uv_stream_t)
         request (uv/uv_write_t)]
@@ -51,22 +51,33 @@
   on-close [handle]
   ((:promise @state) (:contents @state)))
 
-(defn read-bytes-from-buf [nread buf]
-  (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 nread))))
+(defn read-bytes-from-buf-ptr [nread buf]
+  (let [buf (:base (ffi/cast buf uv/uv_buf_t))]
+    (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 nread)))))
+
+; this seems weird, but the on-read is not getting called with nread = 0, so
+; maybe we have to check if the content-length is met to stop reading?
+; that seems wrong and oddly specific to http though, so that seems wrong.
+; I need to understand the interface of libuv better.
 
 (defn-callback
   uv/uv_read_cb [state]
   on-read [tcp nread buf]
+  (prn nread)
   (if (>= nread 0)
-    (let [contents (read-bytes-from-buf
-                     nread
-                     (:base (ffi/cast buf uv/uv_buf_t)))]
-      (swap! state #(assoc % :contents (str (:contents %) contents))))
+    (let [contents (read-bytes-from-buf-ptr nread buf)]
+      (swap! state #(assoc % :contents (str (:contents %) contents)))
+      (prn @state))
     (uv/uv_close tcp (on-close state))))
 
 (defn make-addr [hostname port]
-  (let [addr (uv/sockaddr_in)]
-    (uv/uv_ip4_addr hostname port addr)
+  (let [hostname (ffi/prep-string hostname)
+        addr (uv/sockaddr_in)
+        buf (buffer 1024)]
+    (uv/uv_ip4_addr hostname port (ffi/ptr-add addr 0))
+    (uv/uv_ip4_name (ffi/ptr-add addr 0) buf 1024)
+    (prn
+      (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 15))))
     addr))
 
 (defn make-request []
@@ -74,14 +85,14 @@
         socket (uv/uv_tcp_t)
         _ (uv/uv_tcp_init (uv/uv_default_loop) socket)
         connect (uv/uv_connect_t)
-        addr (make-addr "localhost" 8000)]
+        addr (make-addr "192.241.166.250" 80)]
     (uv/uv_tcp_connect connect socket addr (on-connect state))
     (:promise @state)))
 
-; TODO: unsure what the user-agent should be...
-(def buf (buffer-with-contents "GET / HTTP/1.1
-User-Agent: pixie
-Host: localhost:8000
+(def buf (buffer-with-contents
+"GET / HTTP/1.1
+User-Agent: curl/7.37.1
+Host: whocouldthat.be
 Accept: */*
 
 "))
