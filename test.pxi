@@ -81,9 +81,9 @@
         addr (uv/sockaddr_in)
         buf (buffer 1024)]
     (uv/uv_ip4_addr hostname port (ffi/ptr-add addr 0))
-    (uv/uv_ip4_name (ffi/ptr-add addr 0) buf 1024)
-    (prn
-      (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 15))))
+    ; (uv/uv_ip4_name (ffi/ptr-add addr 0) buf 1024)
+    ; (prn
+    ;   (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 15))))
     addr))
 
 (defn make-request []
@@ -91,7 +91,7 @@
         socket (uv/uv_tcp_t)
         _ (uv/uv_tcp_init (uv/uv_default_loop) socket)
         connect (uv/uv_connect_t)
-        addr (make-addr "192.241.166.250" 80)]
+        addr (make-addr "localhost" 8000)]
     (uv/uv_tcp_connect connect socket addr (on-connect state))
     (:promise @state)))
 
@@ -99,7 +99,7 @@
 "GET / HTTP/1.1
 User-Agent: curl/7.37.1
 Connection: close
-Host: whocouldthat.be
+Host: localhost:8000
 Accept: */*
 
 "))
