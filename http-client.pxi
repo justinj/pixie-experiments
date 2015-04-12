@@ -69,7 +69,6 @@
 (defn-callback
   uv/uv_read_cb [state]
   on-read [tcp nread buf]
-  (prn "nread:" nread)
   (if (>= nread 0)
     (let [contents (read-bytes-from-buf-ptr nread buf)]
       (swap! state #(assoc % :contents (str (:contents %) contents)))
@@ -99,6 +98,7 @@
 (def buf (buffer-with-contents
 "GET / HTTP/1.1
 User-Agent: curl/7.37.1
+Connection: close
 Host: whocouldthat.be
 Accept: */*
 
