@@ -1,4 +1,4 @@
-(ns illusen.core
+(ns http-client.core
   (:require [pixie.uv :as uv]
             [pixie.io :as io]
             [pixie.ffi :as ffi]
@@ -21,15 +21,15 @@
   on-alloc [handle size buf-ptr]
   (let [buf (ffi/cast buf-ptr uv/uv_buf_t)
         b (buffer size)]
-    (pixie.ffi/set! buf :base b)
-    (pixie.ffi/set! buf :len size)))
+    (ffi/set! buf :base b)
+    (ffi/set! buf :len size)))
 
 (defn buffer-with-contents [s]
   (let [buf (uv/uv_buf_t)
         len (count s)
         s (ffi/prep-string s)]
-    (pixie.ffi/set! buf :base s)
-    (pixie.ffi/set! buf :len len)
+    (ffi/set! buf :base s)
+    (ffi/set! buf :len len)
     buf))
 
 (defn-callback
@@ -69,7 +69,7 @@
 (defn-callback
   uv/uv_read_cb [state]
   on-read [tcp nread buf]
-  (prn nread)
+  (prn "nread:" nread)
   (if (>= nread 0)
     (let [contents (read-bytes-from-buf-ptr nread buf)]
       (swap! state #(assoc % :contents (str (:contents %) contents)))
@@ -80,10 +80,11 @@
   (let [hostname (ffi/prep-string hostname)
         addr (uv/sockaddr_in)
         buf (buffer 1024)]
+    (prn hostname)
     (uv/uv_ip4_addr hostname port (ffi/ptr-add addr 0))
-    ; (uv/uv_ip4_name (ffi/ptr-add addr 0) buf 1024)
-    ; (prn
-    ;   (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 15))))
+    (uv/uv_ip4_name (ffi/ptr-add addr 0) buf 1024)
+    (prn
+      (apply str (map #(char (ffi/unpack buf % CUInt8)) (range 0 15))))
     addr))
 
 (defn make-request []
@@ -91,17 +92,17 @@
         socket (uv/uv_tcp_t)
         _ (uv/uv_tcp_init (uv/uv_default_loop) socket)
         connect (uv/uv_connect_t)
-        addr (make-addr "localhost" 8000)]
+        addr (make-addr "192.241.166.250" 80)]
     (uv/uv_tcp_connect connect socket addr (on-connect state))
     (:promise @state)))
 
 (def buf (buffer-with-contents
 "GET / HTTP/1.1
 User-Agent: curl/7.37.1
-Connection: close
-Host: localhost:8000
+Host: whocouldthat.be
 Accept: */*
 
 "))
 
 (prn @(make-request))
+; (prn @(make-request))
